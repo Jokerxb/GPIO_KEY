@@ -1,0 +1,179 @@
+
+#include <stdint.h>
+#include <stdbool.h>
+#include "inc/hw_memmap.h"
+#include "inc/hw_ints.h"
+#include "driverlib/gpio.h"
+#include "driverlib/pin_map.h"
+#include "driverlib/sysctl.h"
+#include "driverlib/interrupt.h"
+#include "inc/hw_types.h"
+#include "inc/hw_gpio.h"
+
+
+volatile int bKeyIntFlag = 0; // The flag indicates the key interrupt;
+
+
+//
+// The interrupt handler of GPIO-F.
+//
+void IntHandler_GPIOF(void)
+{
+    uint32_t ui32IntStatus;
+
+    ui32IntStatus = GPIOIntStatus(GPIO_PORTF_BASE, true);
+
+    //
+    // Clear all the pin interrupts that are set
+    //
+    GPIOIntClear(GPIO_PORTF_BASE, ui32IntStatus);
+
+    // GPIO_INT_PIN_4 == GPIO_PIN_4.
+    // if((ui32IntStatus & GPIO_INT_PIN_4) == GPIO_INT_PIN_4)
+    if ((ui32IntStatus & GPIO_PIN_4) == GPIO_PIN_4)
+    {
+        //
+        // Indicates the key is press .
+        //
+        bKeyIntFlag = 1;
+
+        //
+        // Disable the gpio-F4 interrupt.
+        //
+        GPIOIntDisable(GPIO_PORTF_BASE, GPIO_PIN_4);
+    }
+    if ((ui32IntStatus & GPIO_PIN_0) == GPIO_PIN_0)
+    {
+        //
+        // Indicates the key is press .
+        //
+        bKeyIntFlag = 2;
+
+        //
+        // Disable the gpio-F4 interrupt.
+        //
+        GPIOIntDisable(GPIO_PORTF_BASE, GPIO_PIN_0);
+    }
+}
+
+// main
+void main(void)
+{
+    int temp = 0;
+    int second = 1000;
+    //
+    // Set the system clock to run at 200/5 = 40MHz from the PLL.
+    //
+    SysCtlClockSet(SYSCTL_SYSDIV_5 | SYSCTL_USE_PLL | SYSCTL_OSC_MAIN |
+        SYSCTL_XTAL_16MHZ);
+
+    //
+    // Enable the GPIO port that is used for the on-board LED and KEY.
+    //
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
+
+    //
+    // Check if the peripheral access is enabled.
+    //
+    while (!SysCtlPeripheralReady(SYSCTL_PERIPH_GPIOF))
+        ;
+
+    //
+    // Enable the GPIO pin for the LED1 (PF1).  Set the direction as output, and
+    // enable the GPIO pin for digital function.
+    //
+    GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3);
+
+    //
+    // Turn off the led1.
+    //
+    GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3, temp);
+
+    //
+    // Enable the GPIO pin for the KEY1 (PF4).  Set the direction as input, and
+    // enable the GPIO pin for digital function.
+    //
+    HWREG(GPIO_PORTF_BASE + GPIO_O_LOCK) = GPIO_LOCK_KEY;
+    HWREG(GPIO_PORTF_BASE + GPIO_O_CR) |= 0x01;
+    HWREG(GPIO_PORTF_BASE + GPIO_O_LOCK) = 0;
+    GPIOPinTypeGPIOInput(GPIO_PORTF_BASE, GPIO_PIN_4 | GPIO_PIN_0);
+
+    //
+    // Configure the gpio mode, Push-pull with weak pull-up.
+    //
+    GPIOPadConfigSet(GPIO_PORTF_BASE, GPIO_PIN_4 | GPIO_PIN_0, GPIO_STRENGTH_2MA, GPIO_PIN_TYPE_STD_WPU);
+
+    //
+    // Enable the gpio interrupt.
+    //GPIO_INT_PIN_4 == GPIO_PIN_4.
+    //GPIOIntEnable(GPIO_PORTF_BASE, GPIO_INT_PIN_4);
+    GPIOIntEnable(GPIO_PORTF_BASE, GPIO_PIN_4 | GPIO_PIN_0);
+
+    //
+    // Set the gpio interrupt trigger mode, falling edge.
+    //
+    GPIOIntTypeSet(GPIO_PORTF_BASE, GPIO_PIN_4 | GPIO_PIN_0, GPIO_FALLING_EDGE);
+
+    //
+    // Register the interrupt handler dynamic.
+    //
+    GPIOIntRegister(GPIO_PORTF_BASE, IntHandler_GPIOF);
+
+    //
+    // Enable the gpio interrupt.
+    //
+    IntEnable(INT_GPIOF);
+
+    //
+    // Enable the system interrupt.
+    //
+    IntMasterEnable();
+
+    //
+    // Loop forever.
+    //
+    while (1)
+    {
+        if (1 == bKeyIntFlag) {
+            bKeyIntFlag = 0;
+
+            // Turn on the LED1.
+            GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3, temp);
+            temp += 2;
+            if (temp > 16)
+                temp = 0;
+
+            // Delay 1s.
+            SysCtlDelay(1000 * (SysCtlClockGet() / 3000));
+
+            // Turn off the LED1.
+            GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3, 0x0);
+
+            // Clear all the pin interrupts before enable gpio-F4 interrupt again.
+            GPIOIntClear(GPIO_PORTF_BASE, GPIOIntStatus(GPIO_PORTF_BASE, false));
+
+            // Enable the gpio-F4 interrupt again.
+            GPIOIntEnable(GPIO_PORTF_BASE, GPIO_PIN_4);
+        }
+        if (2 == bKeyIntFlag) {
+            bKeyIntFlag = 0;
+
+            // Turn on the LED1.
+            GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3, temp);
+
+            // Delay 1s.
+            SysCtlDelay(second*(SysCtlClockGet() / 3000));
+            second += 1000;
+            if (second > 5000)
+                second = 1000;
+            // Turn off the LED1.
+            GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3, 0x0);
+
+            // Clear all the pin interrupts before enable gpio-F4 interrupt again.
+            GPIOIntClear(GPIO_PORTF_BASE, GPIOIntStatus(GPIO_PORTF_BASE, false));
+
+            // Enable the gpio-F4 interrupt again.
+            GPIOIntEnable(GPIO_PORTF_BASE, GPIO_PIN_0);
+        }
+    }
+}
